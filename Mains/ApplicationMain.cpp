@@ -4,13 +4,28 @@ void main() {
 
 	gozdiscoptics::init();
 
-	while (!gozdiscoptics::context->should_close()){
-		gozdiscoptics::context->handle_events(true);
+	FDTD solver;
 
-		primitive_renderer::clear(0, 0, 0, 1);
+	solver.initialize_fields([](glm::ivec3 id, FDTD::ElectroMagneticProperties& properties) {
+		properties.electric_field = glm::vec3(0);
+		properties.magnetic_field = glm::vec3(0);
+		
+		properties.source_excitation =
+			FDTD::cos(2)
+			"cos(2*pi*frequency + phase);"
+		;
 
-		gozdiscoptics::context->swap_buffers();
-	}
+
+
+		},
+		glm::ivec3(1024, 1024, 1),
+		true, true, true,
+		FloatingPointAccuracy::fp32
+		);
+
+
+
+	gozdiscoptics::launch_realtime_window(solver);
 
 	gozdiscoptics::release();
 }

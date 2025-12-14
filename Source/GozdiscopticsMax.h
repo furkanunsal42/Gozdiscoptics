@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GraphicsCortex.h"
+#include "FDTD/FDTD.h"
 
 #include <filesystem>
 #include <memory>
@@ -21,11 +22,12 @@ namespace gozdiscoptics {
 	);
 	void release();
 
-	std::filesystem::path get_executable_path_windows();
-
-	//bool launch_preview_window_back(FBP3D& solver, ParameterParser& parser, const char* window_name = "CTReconstructor");
+	bool launch_controls_window(FDTD& solver, const char* window_name = "Gozdiscoptics");
+	bool launch_realtime_window(FDTD& solver, const char* window_name = "Gozdiscoptics");
 
 	extern std::shared_ptr<Window> context;
+
+	std::filesystem::path get_executable_path_windows();
 }
 
 #include "FDTD/FDTD.h"

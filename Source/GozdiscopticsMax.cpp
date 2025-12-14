@@ -68,4 +68,28 @@ void gozdiscoptics::release() {
 	context = nullptr;
 }
 
+bool gozdiscoptics::launch_realtime_window(FDTD& solver, const char* window_name)
+{
+	if (context == nullptr) {
+		std::cout << "[Gozdiscoptics Error] gozdiscoptics::launch_realtime_window() is called but gozdiscoptics wasn't properly initialized. Call gozdiscoptics::init() function before calling this function" << std::endl;
+		ASSERT(false);
+	}
+
+	bool old_visibility = context->is_window_visible();
+
+	context->set_window_visibility(true);
+
+	while (!gozdiscoptics::context->should_close()) {
+		gozdiscoptics::context->handle_events(true);
+
+		primitive_renderer::clear(0, 0, 0, 1);
+
+		gozdiscoptics::context->swap_buffers();
+	}
+	
+	context->set_window_visibility(old_visibility);
+
+	return true;
+}
+
 

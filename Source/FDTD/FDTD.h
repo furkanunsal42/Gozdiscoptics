@@ -6,13 +6,11 @@
 #include <filesystem>
 #include <string>
 
-//#include "LBMConstants/VelocitySet.h"
-//#include "LBMConstants/FloatingPointAccuracy.h"
-//#include "Tools/GraphicsOperation/GraphicsOperation.h"
-
 #include "ComputeProgram.h"
 #include "Mesh.h"
 #include "Camera.h"
+
+#include "FDTDConstants.h"
 
 class FDTD {
 public:
@@ -22,21 +20,46 @@ public:
 	constexpr static float referance_permittivity = 1.0;
 	constexpr static float referance_permeability = 1.0;
 
-	enum FloatingPointAccuracy {
-		fp16 = 0,
-		fp32 = 1,
+	class SourceExcitation {
+	public:
+		SourceExcitation(const std::string& fdtd_excitation_glsl = "");
+		SourceExcitation operator=(const std::string& fdtd_excitation_glsl);
+
+		operator std::string();
+
+		friend SourceExcitation operator+(const SourceExcitation& a, const SourceExcitation& b);
+		friend SourceExcitation operator-(const SourceExcitation& a, const SourceExcitation& b);
+		friend SourceExcitation operator/(const SourceExcitation& a, const SourceExcitation& b);
+		friend SourceExcitation operator*(const SourceExcitation& a, const SourceExcitation& b);
+
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator+(const SourceExcitation& a, const T& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator-(const SourceExcitation& a, const T& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator/(const SourceExcitation& a, const T& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator*(const SourceExcitation& a, const T& b);
+
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator+(const T& a, const SourceExcitation& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator-(const T& a, const SourceExcitation& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator/(const T& a, const SourceExcitation& b);
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>>>
+		friend SourceExcitation operator*(const T& a, const SourceExcitation& b);
+
+	private:
+		std::string fdtd_excitation_glsl;
 	};
 
-	int32_t get_FloatingPointAccuracy_size_in_bytes(FloatingPointAccuracy floating_accuracy);
-	std::string get_FloatingPointAccuracy_to_macro(FloatingPointAccuracy floating_accuracy);
-	
-	enum FDTDGrid {
-		Yee2D,
-		Yee3D
-	};
-
-	int32_t get_FDTDGrid_size_in_bytes(FDTDGrid FDTDGrid);
-	std::string get_FDTDGrid_to_macro(FDTDGrid FDTDGrid);
+	SourceExcitation impulse(float t);
+	SourceExcitation window(float t);
+	SourceExcitation sin(SourceExcitation signal);
+	SourceExcitation cos(SourceExcitation signal);
+	SourceExcitation exp(SourceExcitation signal, float value);
+	SourceExcitation log(SourceExcitation signal);
 
 	// simulation controls
 	void iterate_time(float target_tick_per_second = 0);
@@ -51,16 +74,17 @@ public:
 		glm::vec3 magnetic_field = glm::vec3(0);
 		float electric_charge = 0;
 		float magnetic_charge = 0;
-		uint32_t boundry_id = not_a_boundry;
+		float permittivity = referance_permittivity;
+		float permeability = referance_permeability;
+		SourceExcitation source_excitation;
 	};
+
 	void initialize_fields(
 		std::function<void(glm::ivec3, ElectroMagneticProperties&)> initialization_lambda,
 		glm::ivec3 resolution,
-		float relaxation_time,
 		bool periodic_x = true,
 		bool periodic_y = true,
 		bool periodic_z = true,
-		FDTDGrid velocity_set = FDTDGrid::Yee2D,
 		FloatingPointAccuracy fp_accuracy = FloatingPointAccuracy::fp32
 	);
 
@@ -92,9 +116,6 @@ public:
 	std::shared_ptr<Texture3D> get_magnetic_field_texture();
 	std::shared_ptr<Texture3D> get_electric_field_texture();
 	std::shared_ptr<Texture3D> get_permitivity_permeability_texture();
-
-	// low level visualization api
-	//void copy_to_texture_population(Texture2D& target_texture, int32_t population_index);
 
 	// low level field initialization api
 	FDTDGrid get_fdtd_grid();
@@ -138,6 +159,7 @@ private:
 
 	// simulation time controls
 	bool first_iteration = true;
+	bool is_even_timestep = true;
 	size_t total_ticks_elapsed = 0;
 	std::chrono::time_point<std::chrono::system_clock> simulation_begin;
 	std::chrono::time_point<std::chrono::system_clock> last_visual_update;
@@ -151,13 +173,6 @@ private:
 	void _set_fdtd_grid(FDTDGrid fdtd_grid);
 	void _set_floating_point_accuracy(FloatingPointAccuracy floating_point_accuracy);
 
-	// forces control flags
-	bool is_forcing_scheme = false;
-	bool is_force_field_constant = true;
-	glm::vec3 constant_force = glm::vec3(0);
-	void _set_is_forcing_scheme(bool value);
-	void _set_is_force_field_constant(bool value);
-
 	// moving/stationary boundries control flags
 	bool periodic_x = true;
 	bool periodic_y = true;
@@ -169,117 +184,56 @@ private:
 	struct _object_desc {
 	public:
 		_object_desc(
-			glm::vec3 velocity_translational = glm::vec3(0),
-			glm::vec3 velocity_angular = glm::vec3(0),
-			glm::vec3 center_of_mass = glm::vec3(0),
-			float temperature = referance_temperature,
-			float effective_density = referance_boundry_density
+			float permittivity = referance_permittivity,
+			float permeability = referance_permeability
 		);
 
-		glm::vec3 velocity_translational;
-		glm::vec3 velocity_angular;
-		glm::vec3 center_of_mass;
-		float temperature;
-		float effective_density;
+		float permittivity;
+		float permeability;
 	};
 
 	// boundries buffer holds the id of the object it is a part of (0 means not_a_boundry)
 	// number of bits per voxel can change dynamically basad on how many objects are defined
 	// velocity information of each object is held in another buffer in device called "objects"
-	// objects buffer schema is [vec4 translational_velcoity, vec4 rotational_velocity, vec4 center_of_mass] 
+	// objects buffer schema is [vec2 permittivity_permability] 
 	std::vector<_object_desc> objects_cpu;
 	int32_t bits_per_boundry = 0;
 	void _set_bits_per_boundry(int32_t value);
 	int32_t _get_bits_per_boundry(int32_t value);
 
-	// thermal flow control flags
-	bool is_flow_thermal = false;
-	SimplifiedVelocitySet thermal_lattice_velocity_set = SimplifiedVelocitySet::D2Q5;
-	float thermal_relaxation_time = 0.53;
-	float thermal_expension_coeficient = 0.5f;
-
-	void _set_is_flow_thermal(bool value);
-	bool _get_is_flow_thermal();
-
-	void _set_thermal_lattice_velocity_set(SimplifiedVelocitySet set);
-	SimplifiedVelocitySet _get_thermal_lattice_velocity_set();
-
-	// thermal flow physics
-	void _stream_thermal();
-	void _set_populations_to_equilibrium_thermal(Buffer& temperature_field, Buffer& velocity_field);
-
-	// multiphase flow control flags
-	bool is_flow_multiphase = true;
-	float intermolecular_interaction_strength = -6.0f;
-	void _set_is_flow_multiphase(bool value);
-
 	// device buffers
-	bool is_collide_esoteric = false;
-	bool is_lattice_texture3d = false;
-	Texture3D::ColorTextureFormat lattice_tex_internal_format = Texture3D::ColorTextureFormat::R16F;
+	bool is_grid_texture3d = true;
+	Texture3D::ColorTextureFormat grid_tex_internal_format = Texture3D::ColorTextureFormat::R16F;
 
-	std::shared_ptr<Texture3D> lattice0_tex = nullptr;
-	std::shared_ptr<Texture3D> lattice1_tex = nullptr;
-	std::shared_ptr<Buffer> lattice0 = nullptr;
-	std::shared_ptr<Buffer> lattice1 = nullptr;
+	std::shared_ptr<Texture3D> electric_tex = nullptr;
+	std::shared_ptr<Texture3D> magnetic_tex = nullptr;
+	std::shared_ptr<Buffer> electric_buffer = nullptr;
+	std::shared_ptr<Buffer> magnetic_buffer = nullptr;
 	std::shared_ptr<Buffer> boundries = nullptr;
-	std::shared_ptr<Buffer> objects = nullptr;
-	std::shared_ptr<Buffer> forces = nullptr;
-	std::shared_ptr<Buffer> thermal_lattice0 = nullptr;
-	std::shared_ptr<Buffer> thermal_lattice1 = nullptr;
-
-	std::unique_ptr<UniformBuffer> lattice_velocity_set_buffer = nullptr;
-	std::unique_ptr<UniformBuffer> thermal_lattice_velocity_set_buffer = nullptr;
-
-	// dual buffer control
-	bool is_lattice_0_is_source = true;
-	std::shared_ptr<Buffer> _get_lattice_source();
-	std::shared_ptr<Buffer> _get_lattice_target();
-	std::shared_ptr<Texture3D> _get_lattice_tex_source();
-	std::shared_ptr<Texture3D> _get_lattice_tex_target();
-	void _swap_lattice_buffers();
-
-	bool is_thermal_lattice_0_is_source = true;
-	std::shared_ptr<Buffer> _get_thermal_lattice_source();
-	std::shared_ptr<Buffer> _get_thermal_lattice_target();
-	void _swap_thermal_lattice_buffers();
-
-	// macroscopic variable textures
-	std::shared_ptr<Texture3D> velocity_density_texture = nullptr;
-	std::shared_ptr<Texture3D> boundry_texture = nullptr;
-	std::shared_ptr<Texture3D> force_temperature_texture = nullptr;
-	void _generate_macroscopic_textures();
-
-	Texture3D::ColorTextureFormat velocity_density_texture_internal_format = Texture3D::ColorTextureFormat::RGBA32F;
-	Texture3D::ColorTextureFormat boundry_texture_internal_format = Texture3D::ColorTextureFormat::R8;
-	Texture3D::ColorTextureFormat force_temperature_texture_internal_format = Texture3D::ColorTextureFormat::RGBA32F;
+	std::shared_ptr<UniformBuffer> objects = nullptr;
 
 	// kernels
 	bool is_programs_compiled = false;
-	std::shared_ptr<ComputeProgram> lbm_stream = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_stream_thermal = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_collide = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_collide_save = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_collide_with_precomputed_velocity = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_set_equilibrium_populations = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_set_equilibrium_populations_thermal = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_set_population = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_add_random_population = nullptr;
-	std::shared_ptr<ComputeProgram> lbm_copy_population = nullptr;
+	std::shared_ptr<ComputeProgram> fdtd_propagate_electric = nullptr;
+	std::shared_ptr<ComputeProgram> fdtd_propagate_magnetic = nullptr;
 
 	// renderers
-	std::shared_ptr<Program> program_render2d_density = nullptr;
-	std::shared_ptr<Program> program_render2d_velocity = nullptr;
-	std::shared_ptr<Program> program_render2d_boundries = nullptr;
-	std::shared_ptr<Program> program_render2d_forces = nullptr;
-	std::shared_ptr<Program> program_render2d_temperature = nullptr;
-
-	std::shared_ptr<Program> program_render_volumetric_density = nullptr;
-	std::shared_ptr<Program> program_render_volumetric_velocity = nullptr;
-	std::shared_ptr<Program> program_render_volumetric_boundries = nullptr;
-	std::shared_ptr<Program> program_render_volumetric_forces = nullptr;
-	std::shared_ptr<Program> program_render_volumetric_temperature = nullptr;
-
+	std::shared_ptr<Program> program_render2d_electric = nullptr;
+	std::shared_ptr<Program> program_render2d_magnetic = nullptr;
+	std::shared_ptr<Program> program_render2d_electromagnetic = nullptr;
+	std::shared_ptr<Program> program_render2d_permittivity = nullptr;
+	std::shared_ptr<Program> program_render2d_permeability = nullptr;
+	std::shared_ptr<Program> program_render2d_reflection_index = nullptr;
+	std::shared_ptr<Program> program_render2d_optic = nullptr;
+	
+	std::shared_ptr<Program> program_render3d_electric = nullptr;
+	std::shared_ptr<Program> program_render3d_magnetic = nullptr;
+	std::shared_ptr<Program> program_render3d_electromagnetic = nullptr;
+	std::shared_ptr<Program> program_render3d_permittivity = nullptr;
+	std::shared_ptr<Program> program_render3d_permeability = nullptr;
+	std::shared_ptr<Program> program_render3d_reflection_index = nullptr;
+	std::shared_ptr<Program> program_render3d_optic = nullptr;
+	
 	std::shared_ptr<Mesh> plane_mesh = nullptr;
 	std::shared_ptr<Mesh> plane_cube = nullptr;
 
