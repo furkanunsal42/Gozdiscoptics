@@ -5,10 +5,12 @@
 #include <functional>
 #include <filesystem>
 #include <string>
+#include <type_traits>
 
 #include "ComputeProgram.h"
 #include "Mesh.h"
 #include "Camera.h"
+#include "Texture3D.h"
 
 #include "FDTDConstants.h"
 
@@ -20,12 +22,22 @@ public:
 	constexpr static float referance_permittivity = 1.0;
 	constexpr static float referance_permeability = 1.0;
 
+	enum BoundryCondition {
+		PerfactlyMatched,
+		Dirichlet,
+		Periodic,
+	};
+
 	class SourceExcitation {
 	public:
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, bool> = true>
+		SourceExcitation(const T& constant);
 		SourceExcitation(const std::string& fdtd_excitation_glsl = "");
-		SourceExcitation operator=(const std::string& fdtd_excitation_glsl);
+		SourceExcitation(std::string&& fdtd_excitation_glsl);
+		SourceExcitation& operator=(const std::string& fdtd_excitation_glsl);
+		SourceExcitation& operator=(std::string&& fdtd_excitation_glsl);
 
-		operator std::string();
+		friend std::ostream& operator<<(std::ostream& stream, const SourceExcitation& object);
 
 		friend SourceExcitation operator+(const SourceExcitation& a, const SourceExcitation& b);
 		friend SourceExcitation operator-(const SourceExcitation& a, const SourceExcitation& b);
@@ -54,12 +66,12 @@ public:
 		std::string fdtd_excitation_glsl;
 	};
 
-	SourceExcitation impulse(float t);
-	SourceExcitation window(float t);
-	SourceExcitation sin(SourceExcitation signal);
-	SourceExcitation cos(SourceExcitation signal);
-	SourceExcitation exp(SourceExcitation signal, float value);
-	SourceExcitation log(SourceExcitation signal);
+	static SourceExcitation impulse(float t);
+	static SourceExcitation window(float begin, float end);
+	static SourceExcitation sin(SourceExcitation signal);
+	static SourceExcitation cos(SourceExcitation signal);
+	static SourceExcitation exp(SourceExcitation signal, float value);
+	static SourceExcitation log(SourceExcitation signal);
 
 	// simulation controls
 	void iterate_time(float target_tick_per_second = 0);
@@ -82,19 +94,30 @@ public:
 	void initialize_fields(
 		std::function<void(glm::ivec3, ElectroMagneticProperties&)> initialization_lambda,
 		glm::ivec3 resolution,
-		bool periodic_x = true,
-		bool periodic_y = true,
-		bool periodic_z = true,
-		FloatingPointAccuracy fp_accuracy = FloatingPointAccuracy::fp32
+		FloatingPointAccuracy fp_accuracy = FloatingPointAccuracy::fp32,
+		BoundryCondition x_pn_boundry = PerfactlyMatched,
+		BoundryCondition y_pn_boundry = PerfactlyMatched,
+		BoundryCondition z_pn_boundry = PerfactlyMatched
 	);
 
-	void set_boundry_properties(
-		uint32_t boundry_id,
-		float permittivity = referance_permittivity,
-		float permeability = referance_permeability
+	void initialize_fields(
+		std::function<void(glm::ivec3, ElectroMagneticProperties&)> initialization_lambda,
+		glm::ivec3 resolution,
+		FloatingPointAccuracy fp_accuracy,
+		BoundryCondition x_p_boundry,
+		BoundryCondition x_n_boundry,
+		BoundryCondition y_p_boundry,
+		BoundryCondition y_n_boundry,
+		BoundryCondition z_p_boundry,
+		BoundryCondition z_n_boundry
 	);
 
-	void clear_boundry_properties();
+	//void set_boundry_properties(
+	//	uint32_t boundry_id,
+	//	float permittivity = referance_permittivity,
+	//	float permeability = referance_permeability
+	//);
+	//void clear_boundry_properties();
 
 	// high level visualization api
 	void render2d_electric();
@@ -238,3 +261,5 @@ private:
 	std::shared_ptr<Mesh> plane_cube = nullptr;
 
 };
+
+#include "FDTD_SourceExcitation_Templated.h"
