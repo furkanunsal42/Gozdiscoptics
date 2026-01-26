@@ -1,0 +1,134 @@
+#<compute shader>
+
+#version 460 core
+
+#define id gl_GlobalInvocationID
+
+#define fdtd_electric_internal_format r32f
+#define fdtd_magnetic_internal_format rg32f
+#define fdtd_property_internal_format rgba32f
+#define dimentionality 2
+
+#define Property_Normal				(0)
+#define Property_PEC				(1)
+#define Property_SourceSinosoidal	(2)
+#define Property_SourceImpulse		(3)
+
+
+#define pi		(3.14159265358979323846264338327950288)
+#define c0		(299792458.0)
+#define eps0	(8.854187817e-12)
+#define mu0		(4.0 * pi * 1e-7)
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0, fdtd_electric_internal_format) uniform image3D electric_texture;
+layout(binding = 1, fdtd_magnetic_internal_format) uniform image3D magnetic_texture;
+layout(binding = 2, fdtd_property_internal_format) uniform image3D property_texture;
+
+uniform ivec3 grid_resolution;
+uniform ivec2 pml_thickness_x;
+uniform ivec2 pml_thickness_y;
+uniform ivec2 pml_thickness_z;
+
+uniform int tick;
+
+bool is_voxel_normal(vec4 property) {
+    return property.x == Property_Normal;
+}
+
+bool is_voxel_pec(vec4 property) {
+    return property.x == Property_PEC;
+}
+
+bool is_voxel_source_sinosoidal(vec4 property){
+    return property.x == Property_SourceSinosoidal;
+}
+
+bool is_voxel_source_impulse(vec4 property){
+    return property.x == Property_SourceImpulse;
+}
+
+float get_source_frequency(vec4 property){
+    return property.y;
+}
+
+float get_source_amplitude(vec4 property){
+    return property.z;
+}
+
+float get_source_phase(vec4 property){
+    return property.w;
+}
+
+float pml_damp_coefficient(ivec3 coord){
+    
+    float damp_coefficient = 1;
+
+    int distance_to_edge_px = coord.x;
+    int distance_to_edge_nx = grid_resolution.x - 1 - coord.x;
+
+    int distance_to_edge_py = coord.y;
+    int distance_to_edge_ny = grid_resolution.y - 1 - coord.y;
+
+    //int distance_to_edge_pz = coord.z;
+    //int distance_to_edge_nz = grid_resolution.x - 1 - coord.z;
+
+    float ref = -0.02;
+
+    damp_coefficient *= (distance_to_edge_px <= pml_thickness_x.x) ? exp(ref * (pml_thickness_x.x - distance_to_edge_px)) : 1.0;
+    damp_coefficient *= (distance_to_edge_nx <= pml_thickness_x.y) ? exp(ref * (pml_thickness_x.y - distance_to_edge_nx)) : 1.0;
+
+    damp_coefficient *= (distance_to_edge_py <= pml_thickness_y.x) ? exp(ref * (pml_thickness_y.x - distance_to_edge_py)) : 1.0;
+    damp_coefficient *= (distance_to_edge_ny <= pml_thickness_y.y) ? exp(ref * (pml_thickness_y.y - distance_to_edge_ny)) : 1.0;
+    
+    //damp_coefficient *= (distance_to_edge_pz <= pml_thickness_z.x) ? exp(-0.02 * (pml_thickness_z.x - distance_to_edge_pz)) : 1.0;
+    //damp_coefficient *= (distance_to_edge_nz <= pml_thickness_z.y) ? exp(-0.02 * (pml_thickness_z.y - distance_to_edge_nz)) : 1.0;
+
+    return damp_coefficient;
+}
+
+void main(){
+
+	const float dx = 2e-3;
+    const float dy = dx;
+    const float dt = dx / (2.2 * c0);
+    
+    bool in_simulation_domain   = all(greaterThanEqual(id.xy, uvec2(0))) && all(lessThan(id.xy, uvec2(grid_resolution.xy)));
+    bool in_update_domain       = all(greaterThanEqual(id.xy, uvec2(1))) && all(lessThan(id.xy, uvec2(grid_resolution.xy - 1)));
+    
+    if (!in_simulation_domain)
+        return;
+    
+    float electric_value = imageLoad(electric_texture, ivec3(id.xyz)).x;
+    
+    if (in_update_domain){
+        
+        vec4 voxel_property = imageLoad(property_texture, ivec3(id.xyz));
+    
+        if (is_voxel_normal(voxel_property)) {
+            vec2 magnetic_value00 = imageLoad(magnetic_texture, ivec3(id.xyz) + ivec3( 0,  0,  0)).xy;
+            vec2 magnetic_value01 = imageLoad(magnetic_texture, ivec3(id.xyz) + ivec3(-1,  0,  0)).xy;
+            vec2 magnetic_value10 = imageLoad(magnetic_texture, ivec3(id.xyz) + ivec3( 0, -1,  0)).xy;
+    
+            electric_value += (dt / eps0) *
+                ((magnetic_value00.y - magnetic_value01.y) / dx -
+                (magnetic_value00.x - magnetic_value10.x) / dy);
+        }
+        else if (is_voxel_pec(voxel_property)) {
+            electric_value = 0;
+
+        }
+        else if (is_voxel_source_impulse(voxel_property)){
+            electric_value += exp(-0.5 * pow((tick - 40) / 12.0, 2));
+
+        }
+        else if (is_voxel_source_sinosoidal(voxel_property)){
+            float phase = get_source_frequency(voxel_property) * tick * dt + get_source_phase(voxel_property);
+            electric_value = sin(phase) * get_source_amplitude(voxel_property);
+        }
+    }
+    
+    electric_value *= pml_damp_coefficient(ivec3(id.xyz));
+    imageStore(electric_texture, ivec3(id.xyz), vec4(electric_value));
+}

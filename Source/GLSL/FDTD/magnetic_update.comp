@@ -1,0 +1,57 @@
+#<compute shader>
+
+#version 460 core
+
+#define id gl_GlobalInvocationID
+
+#define fdtd_electric_internal_format r32f
+#define fdtd_magnetic_internal_format rg32f
+#define fdtd_property_internal_format rgba32f
+#define dimentionality 2
+
+#define Property_Normal				(0)
+#define Property_PEC				(1)
+#define Property_SourceSinosoidal	(2)
+#define Property_SourceImpulse		(3)
+
+
+#define pi		(3.14159265358979323846264338327950288)
+#define c0		(299792458.0)
+#define eps0	(8.854187817e-12)
+#define mu0		(4.0 * pi * 1e-7)
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0, fdtd_electric_internal_format) uniform image3D electric_texture;
+layout(binding = 1, fdtd_magnetic_internal_format) uniform image3D magnetic_texture;
+layout(binding = 2, fdtd_property_internal_format) uniform image3D property_texture;
+
+uniform ivec3 grid_resolution;
+
+void main(){
+
+	const float dx = 2e-3;
+    const float dy = dx;
+    const float dt = dx / (2.2 * c0);
+
+    bool in_simulation_domain   = all(greaterThanEqual(id.xy, uvec2(0))) && all(lessThan(id.xy, uvec2(grid_resolution.xy)));
+    bool in_update_domain       = all(greaterThanEqual(id.xy, uvec2(0))) && all(lessThan(id.xy, uvec2(grid_resolution.xy - 1)));
+
+    if (!in_update_domain)
+        return;
+
+    vec2 magnetic_value = imageLoad(magnetic_texture, ivec3(id.xyz)).xy;
+    
+    float electric_value00 = imageLoad(electric_texture, ivec3(id.xyz) + ivec3( 0,  0,  0)).x;
+    float electric_value01 = imageLoad(electric_texture, ivec3(id.xyz) + ivec3(+1,  0,  0)).x;
+    float electric_value10 = imageLoad(electric_texture, ivec3(id.xyz) + ivec3( 0, +1,  0)).x;
+
+    magnetic_value.x -= (dt / mu0) *
+        (electric_value10 - electric_value00) / dy;
+
+    magnetic_value.y += (dt / mu0) *
+        (electric_value01 - electric_value00) / dx;
+
+    imageStore(magnetic_texture, ivec3(id.xyz), vec4(magnetic_value, 0, 0));
+
+}
